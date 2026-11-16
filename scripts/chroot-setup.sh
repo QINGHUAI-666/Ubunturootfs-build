@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  在 chroot 内部运行：把 debootstrap 基础系统配置成完整的 Ubuntu 26.04 arm64 rootfs
-#    - 中科大(USTC)完整软件源
+#    - 构建期用 EC2 us-east-2 快速源，配置完成后切换为中科大(USTC)完整软件源
 #    - 中文本地化（zh_CN.UTF-8）
 #    - 常用工具
 #    - root / ubuntu 用户、sudo 免密、OpenSSH 密码登录
@@ -19,8 +19,11 @@ export HOME=/root
 export LANG=C.UTF-8
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-MIRROR="https://mirrors.ustc.edu.cn/ubuntu-ports"
 RELEASE="resolute"
+# 构建期镜像：EC2 us-east-2（与 GitHub runner 同区域，下载快）
+BUILD_MIRROR="http://us-east-2.ec2.archive.ubuntu.com/ubuntu"
+# 最终镜像：中科大（rootfs 交付后国内使用）
+FINAL_MIRROR="https://mirrors.ustc.edu.cn/ubuntu-ports"
 
 log() { printf '\033[1;36m[setup]\033[0m %s\n' "$*"; }
 
@@ -34,27 +37,27 @@ POLICY
 chmod 0755 /usr/sbin/policy-rc.d
 
 # ===========================================================================
-# 1. 中科大(USTC) 完整软件源（DEB822 格式，arm64 -> ubuntu-ports）
+# 1. 构建期软件源：EC2 us-east-2（DEB822 格式，完整组件）
 # ===========================================================================
-log "配置中科大(USTC)完整软件源"
+log "配置构建期软件源(EC2 us-east-2)"
 cat > /etc/apt/sources.list.d/ubuntu.sources <<SRC
-# Ubuntu 26.04 (Resolute Raccoon) arm64 —— 中科大(USTC)完整软件源
+# Ubuntu 26.04 (Resolute Raccoon) arm64 —— 构建期 EC2 完整软件源
 # 含 main / universe / restricted / multiverse 以及 updates / backports / security
 Types: deb
-URIs: ${MIRROR}
+URIs: ${BUILD_MIRROR}
 Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
 Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 Types: deb
-URIs: ${MIRROR}
+URIs: ${BUILD_MIRROR}
 Suites: ${RELEASE}-security
 Components: main universe restricted multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 # 如需源码仓库，取消下面注释即可
 # Types: deb-src
-# URIs: ${MIRROR}
+# URIs: ${BUILD_MIRROR}
 # Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
 # Components: main restricted universe multiverse
 # Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
@@ -543,7 +546,36 @@ export NVM_DIR="/usr/local/nvm"
 NVMPROFILE
 
 # ===========================================================================
-# 15. 收尾清理
+# 15. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
+#     注意：此处只改源，不再 apt-get update，避免从国外 runner 拉 USTC 变慢；
+#           rootfs 首次启动后执行 apt-get update 即从中科大拉取索引。
+# ===========================================================================
+log "切换软件源为中科大(USTC)"
+cat > /etc/apt/sources.list.d/ubuntu.sources <<FINALSRC
+# Ubuntu 26.04 (Resolute Raccoon) arm64 —— 中科大(USTC)完整软件源
+# 含 main / universe / restricted / multiverse 以及 updates / backports / security
+Types: deb
+URIs: ${FINAL_MIRROR}
+Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: ${FINAL_MIRROR}
+Suites: ${RELEASE}-security
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+# 如需源码仓库，取消下面注释即可
+# Types: deb-src
+# URIs: ${FINAL_MIRROR}
+# Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
+# Components: main restricted universe multiverse
+# Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+FINALSRC
+
+# ===========================================================================
+# 16. 收尾清理
 # ===========================================================================
 log "验证结果"
 echo "OS   : $(. /etc/os-release && echo "$PRETTY_NAME")"

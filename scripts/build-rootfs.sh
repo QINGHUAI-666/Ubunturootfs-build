@@ -8,7 +8,9 @@ set -euo pipefail
 RELEASE="${RELEASE:-resolute}"
 VERSION="${VERSION:-26.04.1}"
 ARCH="${ARCH:-arm64}"
-MIRROR="${MIRROR:-https://mirrors.ustc.edu.cn/ubuntu-ports}"
+# 构建期镜像：EC2 us-east-2（与 GitHub runner 同区域，下载快）；
+# 最终 rootfs 会在 chroot-setup.sh 结尾改回中科大源。
+MIRROR="${MIRROR:-http://us-east-2.ec2.archive.ubuntu.com/ubuntu}"
 ROOTFS_DIR="${ROOTFS_DIR:-rootfs}"
 OUT="${OUT:-ubuntu-${VERSION}-${ARCH}-rootfs.tar.gz}"
 QEMU_BIN="/usr/bin/qemu-aarch64-static"

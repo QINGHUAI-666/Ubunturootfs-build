@@ -21,7 +21,8 @@ env:
   RELEASE: resolute
   VERSION: 26.04.1
   ARCH: arm64
-  MIRROR: https://mirrors.ustc.edu.cn/ubuntu-ports
+  # 构建期镜像：EC2 us-east-2（runner 同区域，快）；最终 rootfs 内会改回中科大源
+  MIRROR: http://us-east-2.ec2.archive.ubuntu.com/ubuntu
 
 permissions:
   contents: write
