@@ -247,8 +247,22 @@ KERNEL="$(uname -r 2>/dev/null || echo '-')"
 ARCH="$(uname -m 2>/dev/null || echo '-')"
 UP="$(uptime -p 2>/dev/null | sed 's/^up *//')"; [ -z "$UP" ] && UP="刚刚启动"
 LOAD="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"; [ -z "$LOAD" ] && LOAD="-"
-MEM="$(free -h 2>/dev/null | awk '/^Mem:/{print $3" / "$2}')"; [ -z "$MEM" ] && MEM="-"
-DISK="$(df -h / 2>/dev/null | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"; [ -z "$DISK" ] && DISK="-"
+
+# 内存：直接从 /proc/meminfo 读取（单位 kB），不依赖 free 命令（proot/DroidSpaces 下更可靠）
+MEM=""
+if [ -r /proc/meminfo ]; then
+  _mt=$(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+  _ma=$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+  [ -z "$_ma" ] && _ma=$(awk '/^MemFree:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+  if [ -n "$_mt" ] && [ -n "$_ma" ] && [ "$_mt" -gt 0 ] 2>/dev/null; then
+    _mu=$(( _mt - _ma ))
+    MEM="$(awk -v u="$_mu" -v t="$_mt" 'BEGIN{printf "%.1fG / %.1fG (%.0f%%)", u/1048576, t/1048576, (t>0?u/t*100:0)}')"
+  fi
+fi
+[ -z "$MEM" ] && MEM="未检测到"
+
+# 磁盘：-P 保证一行一个文件系统，避免设备名过长折行导致取错行
+DISK="$(df -hP / 2>/dev/null | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"; [ -z "$DISK" ] && DISK="未检测到"
 NPROC="$(nproc 2>/dev/null)"; [ -z "$NPROC" ] && NPROC="-"
 
 NODE_V="$(node -v 2>/dev/null || echo '未安装')"
