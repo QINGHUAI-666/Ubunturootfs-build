@@ -67,8 +67,9 @@ mount_vfs() {
 }
 mount_vfs /proc     proc   proc   /proc
 mount_vfs /sys      sysfs  sysfs  /sys
-mount_vfs /dev/pts  devpts devpts /dev/pts
+# 先 bind /dev，再在其上挂 devpts（顺序不能反，否则 devpts 会被 bind 遮蔽）
 sudo mount -o bind /dev "${ROOTFS_DIR}/dev" 2>/dev/null || true
+mount_vfs /dev/pts  devpts devpts /dev/pts
 
 sudo cp /etc/resolv.conf "${ROOTFS_DIR}/etc/resolv.conf"
 

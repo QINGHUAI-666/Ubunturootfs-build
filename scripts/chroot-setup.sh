@@ -145,6 +145,11 @@ ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true
 log "创建用户并设置密码"
 echo "root:123456" | chpasswd
 
+# 确保附加组存在（debootstrap 最小系统可能缺少 netdev 等组）
+for _g in sudo adm dialout cdrom floppy audio dip video plugdev netdev; do
+  getent group "$_g" >/dev/null 2>&1 || groupadd "$_g" || true
+done
+
 id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/zsh \
   -G sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,netdev ubuntu
 echo "ubuntu:123456" | chpasswd
