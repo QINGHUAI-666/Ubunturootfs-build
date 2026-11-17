@@ -42,15 +42,40 @@ sudo debootstrap \
   "${RELEASE}" "${ROOTFS_DIR}" "${MIRROR}"
 
 # ---------------------------------------------------------------------------
-# 3. 挂载虚拟文件系统
+# 3. 第二阶段：在 chroot 内完成基础系统安装（arm64 原生执行）
+#    关键：必须放在“挂载虚拟文件系统”之前——debootstrap 的 second-stage 会自行
+#    挂载并卸载 /proc，若提前挂载会被它卸载，导致后续 systemd postinst 报
+#    “/proc is not mounted / Cannot open /etc/machine-id ... Function not implemented”。
+# ---------------------------------------------------------------------------
+log "debootstrap --second-stage"
+sudo chroot "${ROOTFS_DIR}" /debootstrap/debootstrap --second-stage
+
+# ---------------------------------------------------------------------------
+# 4. 挂载虚拟文件系统（务必在 second-stage 之后）
+#    受限 mount namespace 下 mount -t proc 可能静默失败，故加 bind 挂载回退。
 # ---------------------------------------------------------------------------
 sudo mkdir -p "${ROOTFS_DIR}/proc" "${ROOTFS_DIR}/sys" "${ROOTFS_DIR}/dev/pts"
 log "挂载 /proc /sys /dev /dev/pts"
-sudo mount -t proc  /proc  "${ROOTFS_DIR}/proc"
-sudo mount -t sysfs /sys   "${ROOTFS_DIR}/sys"
-sudo mount -o bind  /dev   "${ROOTFS_DIR}/dev"
-sudo mount -t devpts devpts "${ROOTFS_DIR}/dev/pts"
+
+mount_vfs() {
+  local target="$1" fstype="$2" devsrc="$3" bindsrc="$4"
+  if ! mountpoint -q "${ROOTFS_DIR}${target}" 2>/dev/null; then
+    sudo mount -t "${fstype}" "${devsrc}" "${ROOTFS_DIR}${target}" 2>/dev/null \
+      || sudo mount -o bind "${bindsrc}" "${ROOTFS_DIR}${target}" 2>/dev/null \
+      || true
+  fi
+}
+mount_vfs /proc     proc   proc   /proc
+mount_vfs /sys      sysfs  sysfs  /sys
+mount_vfs /dev/pts  devpts devpts /dev/pts
+sudo mount -o bind /dev "${ROOTFS_DIR}/dev" 2>/dev/null || true
+
 sudo cp /etc/resolv.conf "${ROOTFS_DIR}/etc/resolv.conf"
+
+# 校验 /proc 是否真的可访问，便于早发现问题
+if [ ! -e "${ROOTFS_DIR}/proc/self" ]; then
+  log "警告：/proc 挂载似乎未生效，chroot 内 systemd 可能报错"
+fi
 
 cleanup() {
   sudo umount -l "${ROOTFS_DIR}/dev/pts" 2>/dev/null || true
@@ -59,12 +84,6 @@ cleanup() {
   sudo umount -l "${ROOTFS_DIR}/proc"     2>/dev/null || true
 }
 trap cleanup EXIT
-
-# ---------------------------------------------------------------------------
-# 4. 第二阶段：在 chroot 内完成基础系统安装（arm64 原生执行）
-# ---------------------------------------------------------------------------
-log "debootstrap --second-stage"
-sudo chroot "${ROOTFS_DIR}" /debootstrap/debootstrap --second-stage
 
 # ---------------------------------------------------------------------------
 # 5. 复制配置脚本并执行（安装软件 / 用户 / SSH / systemd / zsh / nvm / dsh）

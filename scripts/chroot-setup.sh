@@ -28,6 +28,16 @@ FINAL_MIRROR="https://mirrors.ustc.edu.cn/ubuntu-ports"
 log() { printf '\033[1;36m[setup]\033[0m %s\n' "$*"; }
 
 # ---------------------------------------------------------------------------
+# 双保险：确保 /proc /sys 已挂载（debootstrap second-stage 可能卸载过 /proc，
+# 导致 systemd postinst 报 “/proc is not mounted / Cannot open /etc/machine-id”）
+# ---------------------------------------------------------------------------
+for _m in proc sys; do
+  if ! mountpoint -q "/$_m" 2>/dev/null; then
+    mount -t "$_m" "$_m" "/$_m" 2>/dev/null || mount -o bind "/$_m" "/$_m" 2>/dev/null || true
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # 阻止安装包时自动启动服务（chroot 内没有运行中的 systemd）
 # ---------------------------------------------------------------------------
 cat > /usr/sbin/policy-rc.d <<'POLICY'
