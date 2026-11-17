@@ -5,11 +5,11 @@
 #    - 中文本地化（zh_CN.UTF-8）
 #    - 常用工具
 #    - root / ubuntu 用户、sudo 免密、OpenSSH 密码登录
-#    - systemd（默认 multi-user、启用 ssh / dsh 服务）
+#    - systemd（默认 multi-user、启用 ssh 服务）
 #    - zsh + powerlevel10k（仅左侧、Nerd Font 图标）+ 插件
 #    - 美观的启动欢迎语
 #    - NVM + 最新 LTS Node.js
-#    - 最新版 dsh (DeepSeek Harness) + systemd 服务
+#    - 最新版 dsh (DeepSeek Harness)
 # =============================================================================
 set -euo pipefail
 
@@ -528,40 +528,7 @@ log "Node: $(node -v)   npm: $(npm -v)"
 dsh --version 2>/dev/null || log "dsh 已安装（版本输出见启动日志）"
 
 # ===========================================================================
-# 13. dsh systemd 服务
-# ===========================================================================
-log "配置 dsh systemd 服务"
-cat > /etc/systemd/system/dsh.service <<'DSHUNIT'
-[Unit]
-Description=DeepSeek Harness (dsh) Web UI
-Documentation=https://github.com/deepseek-ai/deepseek-harness
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/home/ubuntu
-Environment=HOME=/home/ubuntu
-Environment=DSH_HOME=/home/ubuntu/.dsh
-Environment=NODE_ENV=production
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/dsh web --host 0.0.0.0 --port 3080 --no-open
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=120
-TimeoutStopSec=30
-NoNewPrivileges=true
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-DSHUNIT
-enable_svc dsh.service
-
-# ===========================================================================
-# 14. NVM 环境（供 login shell / bash）
+# 13. NVM 环境（供 login shell / bash）
 # ===========================================================================
 cat > /etc/profile.d/nvm.sh <<'NVMPROFILE'
 export NVM_DIR="/usr/local/nvm"
@@ -570,7 +537,7 @@ export NVM_DIR="/usr/local/nvm"
 NVMPROFILE
 
 # ===========================================================================
-# 15. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
+# 14. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
 #     注意：此处只改源，不再 apt-get update，避免从国外 runner 拉 USTC 变慢；
 #           rootfs 首次启动后执行 apt-get update 即从中科大拉取索引。
 # ===========================================================================
@@ -599,7 +566,7 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 FINALSRC
 
 # ===========================================================================
-# 16. 收尾清理
+# 15. 收尾清理
 # ===========================================================================
 log "验证结果"
 echo "OS   : $(. /etc/os-release && echo "$PRETTY_NAME")"
