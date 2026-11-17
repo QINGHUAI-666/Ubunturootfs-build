@@ -8,8 +8,6 @@
 #    - systemd（默认 multi-user、启用 ssh 服务）
 #    - zsh + powerlevel10k（仅左侧、Nerd Font 图标）+ 插件
 #    - 美观的启动欢迎语
-#    - NVM + 最新 LTS Node.js
-#    - 最新版 dsh (DeepSeek Harness)
 # =============================================================================
 set -euo pipefail
 
@@ -265,9 +263,6 @@ fi
 DISK="$(df -hP / 2>/dev/null | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"; [ -z "$DISK" ] && DISK="未检测到"
 NPROC="$(nproc 2>/dev/null)"; [ -z "$NPROC" ] && NPROC="-"
 
-NODE_V="$(node -v 2>/dev/null || echo '未安装')"
-DSH_V="已就绪"; command -v dsh >/dev/null 2>&1 || DSH_V="未安装"
-
 printf '\n'
 printf '%s\n' "  ${B}${CYN}╭─ ${WHT}${B}${PRETTY_NAME}${R}${DIM}${CYN} · DroidSpaces${R}"
 printf '%s\n' "  ${DIM}${CYN}│${R}"
@@ -278,8 +273,6 @@ printf '%s\n' "  ${DIM}${CYN}│${R}  ${B}${YEL}●${R} ${GRY}运行时间${R}  
 printf '%s\n' "  ${DIM}${CYN}│${R}  ${B}${CYN}●${R} ${GRY}负载/核心${R} : ${WHT}${LOAD}${R} / ${WHT}${NPROC}${R}"
 printf '%s\n' "  ${DIM}${CYN}│${R}  ${B}${GRN}●${R} ${GRY}内存${R}     : ${WHT}${MEM}${R}"
 printf '%s\n' "  ${DIM}${CYN}│${R}  ${B}${BLU}●${R} ${GRY}磁盘 /${R}   : ${WHT}${DISK}${R}"
-printf '%s\n' "  ${DIM}${CYN}│${R}"
-printf '%s\n' "  ${DIM}${CYN}│${R}  ${B}${MAG}●${R} ${GRY}环境${R}     : Node ${WHT}${NODE_V}${R} · dsh ${WHT}${DSH_V}${R}"
 printf '%s\n' "  ${DIM}${CYN}│${R}"
 printf '%s\n' "  ${DIM}${CYN}╰─ ${GRY}常用别名 ll / la / lt · 欢迎使用${R}"
 printf '\n'
@@ -423,11 +416,6 @@ typeset -g POWERLEVEL9K_INSTANT_PROMPT=off
 source /usr/share/zsh/powerlevel10k/powerlevel10k.zsh-theme 2>/dev/null
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
 
-# ---------- NVM ----------
-export NVM_DIR="/usr/local/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" 2>/dev/null
-
 # ---------- 现代 CLI 工具 ----------
 command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
 command -v fzf >/dev/null 2>&1 && source /usr/share/doc/fzf/examples/key-bindings.zsh 2>/dev/null
@@ -485,9 +473,6 @@ chown -R ubuntu:ubuntu /home/ubuntu
 cat >> /etc/bash.bashrc <<'BASHRC'
 
 # ---------- DroidSpaces 追加配置 ----------
-export NVM_DIR="/usr/local/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
 command -v eza >/dev/null 2>&1 && {
   alias ls='eza --icons --group-directories-first --color=auto'
   alias ll='eza -l --icons --group-directories-first --git --color=auto'
@@ -501,57 +486,7 @@ esac
 BASHRC
 
 # ===========================================================================
-# 11. NVM + 最新 LTS Node.js
-# ===========================================================================
-log "安装 NVM 并安装最新 LTS Node.js"
-export NVM_DIR="/usr/local/nvm"
-mkdir -p "$NVM_DIR"
-git clone --depth 1 https://github.com/nvm-sh/nvm.git "$NVM_DIR"
-. "$NVM_DIR/nvm.sh"
-
-nvm install --lts
-nvm alias default 'lts/*'
-nvm use --lts
-
-# dsh 要求 Node >= 24.9，校验一下
-NV=$(node -v | sed 's/^v//')
-MAJOR=$(echo "$NV" | cut -d. -f1)
-MINOR=$(echo "$NV" | cut -d. -f2)
-if [ "$MAJOR" -lt 24 ] || { [ "$MAJOR" -eq 24 ] && [ "$MINOR" -lt 9 ]; }; then
-  log "Node ${NV} 不满足 dsh 要求(>=24.9)，改装最新版 Node"
-  nvm install node
-  nvm alias default node
-fi
-
-# 让 node/npm/npx/dsh 全局可见（供 systemd、脚本使用）
-NVM_BIN="$(dirname "$(nvm which current)")"
-
-# ===========================================================================
-# 12. 最新版 dsh（DeepSeek Harness）
-# ===========================================================================
-log "安装最新版 dsh (DeepSeek Harness)"
-NODE_OPTIONS="--max-old-space-size=4096" npm install -g @deepseek-ai/dsh --no-audit --no-fund
-
-ln -sf "$NVM_BIN/node"     /usr/local/bin/node
-ln -sf "$NVM_BIN/npm"      /usr/local/bin/npm
-ln -sf "$NVM_BIN/npx"      /usr/local/bin/npx
-[ -e "$NVM_BIN/corepack" ] && ln -sf "$NVM_BIN/corepack" /usr/local/bin/corepack
-[ -e "$NVM_BIN/dsh" ]      && ln -sf "$NVM_BIN/dsh" /usr/local/bin/dsh
-
-log "Node: $(node -v)   npm: $(npm -v)"
-dsh --version 2>/dev/null || log "dsh 已安装（版本输出见启动日志）"
-
-# ===========================================================================
-# 13. NVM 环境（供 login shell / bash）
-# ===========================================================================
-cat > /etc/profile.d/nvm.sh <<'NVMPROFILE'
-export NVM_DIR="/usr/local/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
-NVMPROFILE
-
-# ===========================================================================
-# 14. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
+# 11. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
 #     注意：此处只改源，不再 apt-get update，避免从国外 runner 拉 USTC 变慢；
 #           rootfs 首次启动后执行 apt-get update 即从中科大拉取索引。
 # ===========================================================================
@@ -580,15 +515,12 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 FINALSRC
 
 # ===========================================================================
-# 15. 收尾清理
+# 12. 收尾清理
 # ===========================================================================
 log "验证结果"
 echo "OS   : $(. /etc/os-release && echo "$PRETTY_NAME")"
 echo "架构 : $(uname -m)"
 echo "zsh  : $(zsh --version)"
-echo "node : $(node -v)"
-echo "npm  : $(npm -v)"
-echo "dsh  : $(dsh --version 2>/dev/null | head -n1 || echo '已安装')"
 
 log "清理"
 rm -f /usr/sbin/policy-rc.d

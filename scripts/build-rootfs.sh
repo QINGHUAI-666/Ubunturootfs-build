@@ -87,13 +87,13 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# 5. 复制配置脚本并执行（安装软件 / 用户 / SSH / systemd / zsh / nvm / dsh）
+# 5. 复制配置脚本并执行（安装软件 / 用户 / SSH / systemd / zsh）
 # ---------------------------------------------------------------------------
 log "复制 chroot 配置脚本"
 sudo cp "${SCRIPT_DIR}/chroot-setup.sh" "${ROOTFS_DIR}/root/setup.sh"
 sudo chmod 0755 "${ROOTFS_DIR}/root/setup.sh"
 
-log "运行 chroot 配置（这一步较久，包含 npm 安装 dsh）"
+log "运行 chroot 配置（安装软件 / 用户 / SSH / systemd / zsh 等）"
 sudo chroot "${ROOTFS_DIR}" /bin/bash /root/setup.sh
 
 # ---------------------------------------------------------------------------
