@@ -21,7 +21,7 @@ env:
   RELEASE: resolute
   VERSION: 26.04.1
   ARCH: arm64
-  # 构建期镜像：EC2 us-east-2（runner 同区域，快）；最终 rootfs 内会改回中科大源
+  # 构建期镜像：EC2 us-east-2；最终 rootfs 内会改回中科大源
   MIRROR: http://us-east-2.ec2.archive.ubuntu.com/ubuntu
 
 permissions:
@@ -33,22 +33,17 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
 
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 安装 QEMU（arm64 用户态模拟 + binfmt）
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
       - name: 安装构建依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap qemu-user-static
+          sudo apt-get install -y debootstrap
 
       - name: 构建 rootfs
         run: |
