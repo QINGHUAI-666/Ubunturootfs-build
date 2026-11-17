@@ -312,9 +312,9 @@ cat > /etc/zsh/p10k.zsh <<'P10K'
   typeset -g POWERLEVEL9K_PROMPT_ON_NEWLINE=false
   typeset -g POWERLEVEL9K_PROMPT_ADD_NEWLINE=true
 
-  # 分隔符（powerline 风格）
-  typeset -g POWERLEVEL9K_LEFT_SEGMENT_SEPARATOR='\uE0B0'
-  typeset -g POWERLEVEL9K_LEFT_SUBSEGMENT_SEPARATOR='\uE0B1'
+  # 分隔符（powerline 风格，用 $'...' 直接内嵌 Unicode 字符，避免 \u 不被解析）
+  typeset -g POWERLEVEL9K_LEFT_SEGMENT_SEPARATOR=$'\uE0B0'
+  typeset -g POWERLEVEL9K_LEFT_SUBSEGMENT_SEPARATOR=$'\uE0B1'
   typeset -g POWERLEVEL9K_LEFT_SEGMENT_END_SEPARATOR=' '
 
   # os_icon：系统图标（Linux）
@@ -325,7 +325,7 @@ cat > /etc/zsh/p10k.zsh <<'P10K'
   # dir：文件夹图标 + 路径
   typeset -g POWERLEVEL9K_DIR_FOREGROUND=254
   typeset -g POWERLEVEL9K_DIR_BACKGROUND=31
-  typeset -g POWERLEVEL9K_DIR_PREFIX='\uF07B '
+  typeset -g POWERLEVEL9K_DIR_PREFIX=$'\uF07B '
   typeset -g POWERLEVEL9K_DIR_ANCHOR_FOREGROUND=254
   typeset -g POWERLEVEL9K_DIR_ANCHOR_BOLD=true
   typeset -g POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique
@@ -342,7 +342,7 @@ cat > /etc/zsh/p10k.zsh <<'P10K'
   typeset -g POWERLEVEL9K_VCS_MODIFIED_BACKGROUND=178
   typeset -g POWERLEVEL9K_VCS_UNTRACKED_FOREGROUND=0
   typeset -g POWERLEVEL9K_VCS_UNTRACKED_BACKGROUND=209
-  typeset -g POWERLEVEL9K_VCS_BRANCH_ICON='\uF126 '
+  typeset -g POWERLEVEL9K_VCS_BRANCH_ICON=$'\uF126 '
   typeset -g POWERLEVEL9K_VCS_UNTRACKED_ICON='?'
   typeset -g POWERLEVEL9K_VCS_STAGED_ICON='+'
   typeset -g POWERLEVEL9K_VCS_UNSTAGED_ICON='!'
