@@ -317,14 +317,15 @@ cat > /etc/zsh/p10k.zsh <<'P10K'
   typeset -g POWERLEVEL9K_LEFT_SUBSEGMENT_SEPARATOR='\uE0B1'
   typeset -g POWERLEVEL9K_LEFT_SEGMENT_END_SEPARATOR=' '
 
-  # os_icon：系统图标（Tux）
-  typeset -g POWERLEVEL9K_OS_ICON_FOREGROUND=236
-  typeset -g POWERLEVEL9K_OS_ICON_BACKGROUND=254
-  typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION='\uF17C'
+  # os_icon：系统图标（Linux）
+  typeset -g POWERLEVEL9K_OS_ICON_FOREGROUND=255
+  typeset -g POWERLEVEL9K_OS_ICON_BACKGROUND=25
+  typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION='${P9K_CONTENT}'
 
   # dir：文件夹图标 + 路径
   typeset -g POWERLEVEL9K_DIR_FOREGROUND=254
   typeset -g POWERLEVEL9K_DIR_BACKGROUND=31
+  typeset -g POWERLEVEL9K_DIR_PREFIX='\uF07B '
   typeset -g POWERLEVEL9K_DIR_ANCHOR_FOREGROUND=254
   typeset -g POWERLEVEL9K_DIR_ANCHOR_BOLD=true
   typeset -g POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique
@@ -380,18 +381,26 @@ setopt COMPLETE_IN_WORD AUTO_MENU ALWAYS_TO_END
 unsetopt BEEP FLOW_CONTROL
 
 # ---------- 补全 ----------
+# 初始化 dircolors，为补全列表提供颜色（目录/文件用不同颜色显示）
+command -v dircolors >/dev/null 2>&1 && eval "$(dircolors -b)"
 [ -d /usr/share/zsh/zsh-completions/src ] && fpath=(/usr/share/zsh/zsh-completions/src $fpath)
 autoload -Uz compinit
 compinit -d "$HOME/.zcompdump"
 zstyle ':completion:*' menu select
-zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}' 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' rehash true
-zstyle ':completion:*:descriptions' format '%F{yellow}-- %d --%f'
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*:descriptions' format '%F{cyan}-- %d --%f'
+zstyle ':completion:*:messages' format '%F{magenta}-- %d --%f'
+zstyle ':completion:*:warnings' format '%F{red}-- 没有匹配项 --%f'
 
 # ---------- 插件 ----------
+# 自动建议：history + completion 双策略 → 命令补全 + 文件路径补全都有灰色提示
 source /usr/share/zsh/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
-ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#585b70"
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#8a919c"
 source /usr/share/zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
 
 # ---------- 主题（powerlevel10k，仅左侧） ----------
