@@ -33,6 +33,18 @@ cat > /etc/pacman.d/mirrorlist <<'MIRROR'
 Server = http://mirror.archlinuxarm.org/$arch/$repo
 MIRROR
 
+# 临时禁用 pacman 下载沙箱：Docker 容器 seccomp 会拦截 Landlock，
+# 否则报 "Landlock ruleset could not be applied / switching to sandbox user 'alpm' failed"。
+# 注意：这是构建期临时配置，收尾时会移除，恢复 pacman 默认沙箱（保持 rootfs 原样/安全）。
+log "临时禁用 pacman 下载沙箱（容器内 Landlock 不可用）"
+if grep -q '^DisableSandbox' /etc/pacman.conf; then
+  :
+elif grep -q '^#\s*DisableSandbox' /etc/pacman.conf; then
+  sed -i 's/^#\s*DisableSandbox/DisableSandbox/' /etc/pacman.conf
+else
+  sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+fi
+
 log "刷新 pacman keyring"
 pacman-key --populate archlinuxarm archlinux 2>/dev/null || true
 
@@ -485,6 +497,12 @@ log "验证结果"
 echo "OS   : $(. /etc/os-release && echo "$PRETTY_NAME")"
 echo "架构 : $(uname -m)"
 echo "zsh  : $(zsh --version)"
+
+# 移除构建期临时加入的 DisableSandbox，恢复 pacman 默认沙箱配置（交付后保持原样）
+log "恢复 pacman 默认沙箱配置"
+if grep -q '^DisableSandbox' /etc/pacman.conf; then
+  sed -i 's/^DisableSandbox/#DisableSandbox/' /etc/pacman.conf
+fi
 
 log "清理"
 pacman -Scc --noconfirm 2>/dev/null || true
