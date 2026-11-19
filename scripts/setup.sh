@@ -1,141 +1,94 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  在 chroot 内部运行：把 debootstrap 基础系统配置成完整的 Ubuntu 26.04 arm64 rootfs
-#    - 构建期用 EC2 us-east-2 快速源，配置完成后切换为中科大(USTC)完整软件源
+#  在 Docker 容器内运行：把 Arch Linux ARM 官方 rootfs 配置成完整可用的 rootfs
+#    - 构建期用官方 Arch ARM 源，配置完成后切换为中科大(USTC)源
+#    - 附加源：archlinuxcn（中科大） + arch4edu（南京大学）
 #    - 中文本地化（zh_CN.UTF-8）
 #    - 常用工具
-#    - root / ubuntu 用户、sudo 免密、OpenSSH 密码登录
-#    - systemd（默认 multi-user、启用 ssh 服务）
+#    - root / Arch 用户、sudo 免密、OpenSSH 密码登录
+#    - systemd（默认 multi-user、启用 sshd 服务）
 #    - zsh + powerlevel10k（仅左侧、Nerd Font 图标）+ 插件
 #    - 美观的启动欢迎语
 # =============================================================================
 set -euo pipefail
 
-export DEBIAN_FRONTEND=noninteractive
-export DEBCONF_NONINTERACTIVE_SEEN=true
 export HOME=/root
 export LANG=C.UTF-8
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-RELEASE="resolute"
-# 构建期镜像：EC2 us-east-2（与 GitHub runner 同区域，下载快）
-BUILD_MIRROR="http://us-east-2.ec2.archive.ubuntu.com/ubuntu"
-# 最终镜像：中科大（rootfs 交付后国内使用）
-FINAL_MIRROR="https://mirrors.ustc.edu.cn/ubuntu-ports"
+ARCH="aarch64"
+# 最终主源：中科大（rootfs 交付后国内使用）
+FINAL_MIRROR="https://mirrors.ustc.edu.cn/archlinuxarm"
+# 附加源
+CN_MIRROR="https://mirrors.ustc.edu.cn/archlinuxcn"
+EDU_MIRROR="https://mirror.nju.edu.cn/arch4edu"
 
 log() { printf '\033[1;36m[setup]\033[0m %s\n' "$*"; }
 
-# ---------------------------------------------------------------------------
-# 双保险：确保 /proc /sys 已挂载（debootstrap second-stage 可能卸载过 /proc，
-# 导致 systemd postinst 报 “/proc is not mounted / Cannot open /etc/machine-id”）
-# ---------------------------------------------------------------------------
-for _m in proc sys; do
-  if ! mountpoint -q "/$_m" 2>/dev/null; then
-    mount -t "$_m" "$_m" "/$_m" 2>/dev/null || mount -o bind "/$_m" "/$_m" 2>/dev/null || true
-  fi
-done
-
-# ---------------------------------------------------------------------------
-# 阻止安装包时自动启动服务（chroot 内没有运行中的 systemd）
-# ---------------------------------------------------------------------------
-cat > /usr/sbin/policy-rc.d <<'POLICY'
-#!/bin/sh
-exit 101
-POLICY
-chmod 0755 /usr/sbin/policy-rc.d
-
 # ===========================================================================
-# 1. 构建期软件源：EC2 us-east-2（DEB822 格式，完整组件）
+# 1. 构建期主源（官方 Arch ARM 源，与 GitHub runner 同区域，快）
 # ===========================================================================
-log "配置构建期软件源(EC2 us-east-2)"
-cat > /etc/apt/sources.list.d/ubuntu.sources <<SRC
-# Ubuntu 26.04 (Resolute Raccoon) arm64 —— 构建期 EC2 完整软件源
-# 含 main / universe / restricted / multiverse 以及 updates / backports / security
-Types: deb
-URIs: ${BUILD_MIRROR}
-Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+log "配置构建期主源（官方 Arch ARM）"
+cat > /etc/pacman.d/mirrorlist <<'MIRROR'
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+MIRROR
 
-Types: deb
-URIs: ${BUILD_MIRROR}
-Suites: ${RELEASE}-security
-Components: main universe restricted multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+log "刷新 pacman keyring"
+pacman-key --populate archlinuxarm archlinux 2>/dev/null || true
 
-# 如需源码仓库，取消下面注释即可
-# Types: deb-src
-# URIs: ${BUILD_MIRROR}
-# Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
-# Components: main restricted universe multiverse
-# Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-SRC
+# 先刷新 keyring 包本身（避免旧 keyring 导致后续签名失败）
+log "更新 keyring 包"
+pacman -Sy --noconfirm archlinux-keyring archlinuxarm-keyring 2>/dev/null || true
 
-# 统一使用 DEB822，清理传统 sources.list
-rm -f /etc/apt/sources.list
-rm -f /etc/apt/sources.list.d/*.list
-
-log "apt-get update"
-apt-get update
-
-# 升级到 26.04.1（resolute-updates / resolute-security 中的点版本包）
-log "升级到 26.04.1 点版本"
-apt-get -y dist-upgrade
+log "pacman -Syu 更新系统"
+pacman -Syu --noconfirm
 
 # ===========================================================================
 # 2. 基础系统组件
 # ===========================================================================
 log "安装基础系统组件"
-apt-get install -y \
-  systemd systemd-sysv dbus \
-  locales tzdata \
-  ca-certificates apt-utils \
-  sudo openssh-server openssh-client \
-  zsh bash bash-completion \
+pacman -S --noconfirm --needed \
+  base-devel systemd \
+  openssh sudo \
+  zsh zsh-completions bash-completion \
   git curl wget \
   gnupg \
-  man-db manpages less file
+  man-db man-pages less file
 
 # ===========================================================================
 # 3. 中文本地化
 # ===========================================================================
 log "配置中文本地化环境"
-apt-get install -y language-pack-zh-hans language-pack-zh-hans-base manpages-zh
-
-sed -i 's/^# *\(zh_CN.UTF-8 UTF-8\)/\1/' /etc/locale.gen || true
-sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen || true
+sed -i 's/^#\s*\(zh_CN.UTF-8 UTF-8\)/\1/' /etc/locale.gen || true
+sed -i 's/^#\s*\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen || true
 grep -q '^zh_CN.UTF-8 UTF-8' /etc/locale.gen || echo 'zh_CN.UTF-8 UTF-8' >> /etc/locale.gen
 grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen
-locale-gen zh_CN.UTF-8 en_US.UTF-8
-update-locale LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:zh:en_US:en LC_CTYPE=zh_CN.UTF-8
+locale-gen
+
+cat > /etc/locale.conf <<'LOCALE'
+LANG=zh_CN.UTF-8
+LC_CTYPE=zh_CN.UTF-8
+LOCALE
 
 # 时区：上海
-echo "tzdata tzdata/Areas select Asia" | debconf-set-selections
-echo "tzdata tzdata/Zones select Shanghai" | debconf-set-selections
 ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-dpkg-reconfigure -f noninteractive tzdata 2>/dev/null || true
 
 # ===========================================================================
 # 4. 常用工具
 # ===========================================================================
 log "安装常用工具"
-apt-get install -y \
-  build-essential pkg-config \
-  python3 python3-pip python3-venv python3-dev \
+pacman -S --noconfirm --needed \
+  python python-pip \
   vim nano \
   htop btop \
-  tmux screen \
+  tmux \
   rsync \
-  unzip zip tar xz-utils bzip2 \
+  unzip zip \
   tree jq \
-  ripgrep fd-find fzf zoxide bat eza \
+  ripgrep fd fzf zoxide bat eza \
   lsof strace \
-  net-tools iproute2 iputils-ping dnsutils \
-  procps ncdu duf aria2
-
-# Debian 命名兼容：bat->batcat，fd->fdfind
-ln -sf /usr/bin/batcat /usr/local/bin/bat 2>/dev/null || true
-ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true
+  net-tools iproute2 iputils bind-tools \
+  procps-ng ncdu duf aria2
 
 # ===========================================================================
 # 5. 用户与密码
@@ -143,25 +96,28 @@ ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true
 log "创建用户并设置密码"
 echo "root:123456" | chpasswd
 
-# 确保附加组存在（debootstrap 最小系统可能缺少 netdev 等组）
-for _g in sudo adm dialout cdrom floppy audio dip video plugdev netdev; do
+# 删除 Arch Linux ARM 官方 rootfs 自带的 alarm 用户
+userdel -r alarm 2>/dev/null || true
+
+# 确保附加组存在
+for _g in wheel sudo audio video storage optical input lp power network; do
   getent group "$_g" >/dev/null 2>&1 || groupadd "$_g" || true
 done
 
-id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/zsh \
-  -G sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,netdev ubuntu
-echo "ubuntu:123456" | chpasswd
+id -u Arch >/dev/null 2>&1 || useradd -m -G wheel,audio,video,storage,optical,input,lp,power,network -s /bin/zsh Arch
+echo "Arch:123456" | chpasswd
 
-# sudo 免密（ubuntu）
-cat > /etc/sudoers.d/ubuntu <<'SUDOERS'
-ubuntu ALL=(ALL:ALL) NOPASSWD:ALL
+# sudo 免密（wheel 组 + root）
+cat > /etc/sudoers.d/10-nopasswd <<'SUDOERS'
+%wheel ALL=(ALL:ALL) NOPASSWD:ALL
+root ALL=(ALL:ALL) ALL
 SUDOERS
-chmod 0440 /etc/sudoers.d/ubuntu
-grep -q '^root\s' /etc/sudoers 2>/dev/null || echo 'root ALL=(ALL:ALL) ALL' >> /etc/sudoers
+chmod 0440 /etc/sudoers.d/10-nopasswd
+grep -q '^@includedir /etc/sudoers.d' /etc/sudoers || echo '@includedir /etc/sudoers.d' >> /etc/sudoers
 
 # 默认 shell 统一为 zsh
 usermod -s /bin/zsh root
-usermod -s /bin/zsh ubuntu
+usermod -s /bin/zsh Arch
 
 # ===========================================================================
 # 6. 主机名
@@ -184,8 +140,7 @@ log "配置 OpenSSH"
 mkdir -p /run/sshd
 ssh-keygen -A
 
-cat > /etc/ssh/sshd_config.d/99-droidspaces.conf <<'SSHD'
-# DroidSpaces rootfs 专用配置
+cat > /etc/ssh/sshd_config <<'SSHD'
 Port 22
 AddressFamily inet
 PermitRootLogin yes
@@ -196,19 +151,19 @@ UsePAM yes
 X11Forwarding no
 PrintMotd no
 AcceptEnv LANG LC_*
-Subsystem sftp /usr/lib/openssh/sftp-server
+Subsystem sftp /usr/lib/ssh/sftp-server
 SSHD
 
 # ===========================================================================
 # 8. systemd
 # ===========================================================================
 log "配置 systemd"
-ln -sf /lib/systemd/system/multi-user.target /etc/systemd/system/default.target
+ln -sf /usr/lib/systemd/system/multi-user.target /etc/systemd/system/default.target
 
-# chroot 内 systemctl 无法连接 systemd，手动建立 wants 符号链接来“启用”服务
+# 容器内 systemctl 无法连接 systemd，手动建立 wants 符号链接来“启用”服务
 enable_svc() {
   local unit="$1" src=""
-  for p in /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system; do
+  for p in /etc/systemd/system /usr/lib/systemd/system; do
     [ -f "$p/$unit" ] && { src="$p/$unit"; break; }
   done
   [ -z "$src" ] && { echo "!! 未找到单元 $unit"; return 1; }
@@ -216,10 +171,10 @@ enable_svc() {
   ln -sf "$src" "/etc/systemd/system/multi-user.target.wants/$unit"
   echo "启用 $unit"
 }
-enable_svc ssh.service
+enable_svc sshd.service
 
 # ===========================================================================
-# 9. 启动欢迎语（美观 + 实用：展示系统/网络/资源/环境信息）
+# 9. 启动欢迎语（美观 + 实用：展示系统/网络/资源信息）
 # ===========================================================================
 log "安装启动欢迎语"
 cat > /usr/local/bin/welcome <<'WELCOME'
@@ -233,7 +188,7 @@ BLU=$'\033[38;5;75m';  MAG=$'\033[38;5;176m'; CYN=$'\033[38;5;80m'
 GRY=$'\033[38;5;245m'; WHT=$'\033[38;5;255m'
 
 [ -r /etc/os-release ] && . /etc/os-release
-: "${PRETTY_NAME:=Ubuntu Linux}"
+: "${PRETTY_NAME:=Arch Linux}"
 HOST="$(hostname 2>/dev/null || echo localhost)"
 U="$(id -un 2>/dev/null || echo "${USER:-unknown}")"
 
@@ -282,17 +237,17 @@ chmod 0755 /usr/local/bin/welcome
 # 禁用系统 MOTD，避免与欢迎语重复显示
 rm -f /etc/motd
 : > /etc/motd
-rm -f /etc/update-motd.d/* 2>/dev/null || true
 
 # ===========================================================================
 # 10. zsh 主题（powerlevel10k，仅左侧 + Nerd Font 图标）与插件
 # ===========================================================================
 log "安装 zsh 主题与插件"
+# 插件（官方仓库）：自动建议 / 语法高亮 / 补全
+pacman -S --noconfirm --needed zsh-autosuggestions zsh-syntax-highlighting zsh-completions
+
+# powerlevel10k（AUR 不在官方仓库，直接 git clone）
 mkdir -p /usr/share/zsh
-git clone --depth 1 https://github.com/romkatv/powerlevel10k.git      /usr/share/zsh/powerlevel10k
-git clone --depth 1 https://github.com/zsh-users/zsh-autosuggestions.git /usr/share/zsh/zsh-autosuggestions
-git clone --depth 1 https://github.com/zsh-users/zsh-syntax-highlighting.git /usr/share/zsh/zsh-syntax-highlighting
-git clone --depth 1 https://github.com/zsh-users/zsh-completions.git     /usr/share/zsh/zsh-completions
+git clone --depth 1 https://github.com/romkatv/powerlevel10k.git /usr/share/zsh/powerlevel10k
 
 # p10k 配置：全部左侧、powerline 分隔、文件夹/Git/系统图标
 cat > /etc/zsh/p10k.zsh <<'P10K'
@@ -367,7 +322,7 @@ P10K
 
 # 系统级 zshrc
 cat > /etc/zsh/zshrc <<'ZSHRC'
-# /etc/zsh/zshrc —— 系统级 zsh 配置（Ubuntu 26.04 · DroidSpaces）
+# /etc/zsh/zshrc —— 系统级 zsh 配置（Arch Linux ARM · DroidSpaces）
 
 # ---------- 基础 ----------
 export LANG=zh_CN.UTF-8
@@ -390,7 +345,7 @@ unsetopt BEEP FLOW_CONTROL
 # ---------- 补全 ----------
 # 初始化 dircolors，为补全列表提供颜色（目录/文件用不同颜色显示）
 command -v dircolors >/dev/null 2>&1 && eval "$(dircolors -b)"
-[ -d /usr/share/zsh/zsh-completions/src ] && fpath=(/usr/share/zsh/zsh-completions/src $fpath)
+[ -d /usr/share/zsh/site-functions ] && fpath=(/usr/share/zsh/site-functions $fpath)
 autoload -Uz compinit
 compinit -d "$HOME/.zcompdump"
 zstyle ':completion:*' menu select
@@ -404,22 +359,26 @@ zstyle ':completion:*:warnings' format '%F{red}-- 没有匹配项 --%f'
 
 # ---------- 插件 ----------
 # 自动建议：history + completion 双策略 → 命令补全 + 文件路径补全都有灰色提示
-source /usr/share/zsh/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+if [ -f /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+  source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+fi
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#8a919c"
-source /usr/share/zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+if [ -f /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
+  source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+fi
 
 # ---------- 主题（powerlevel10k，仅左侧） ----------
 # 关闭即时提示：在 DroidSpaces/headless 无缓存环境下更稳妥
 typeset -g POWERLEVEL9K_INSTANT_PROMPT=off
-source /usr/share/zsh/powerlevel10k/powerlevel10k.zsh-theme 2>/dev/null
+[ -f /usr/share/zsh/powerlevel10k/powerlevel10k.zsh-theme ] && source /usr/share/zsh/powerlevel10k/powerlevel10k.zsh-theme
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
 
 # ---------- 现代 CLI 工具 ----------
 command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
-command -v fzf >/dev/null 2>&1 && source /usr/share/doc/fzf/examples/key-bindings.zsh 2>/dev/null
-command -v fzf >/dev/null 2>&1 && source /usr/share/doc/fzf/examples/completion.zsh 2>/dev/null
+command -v fzf >/dev/null 2>&1 && [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
+command -v fzf >/dev/null 2>&1 && [ -f /usr/share/fzf/completion.zsh ] && source /usr/share/fzf/completion.zsh
 
 # ---------- 别名（ls 带图标等） ----------
 alias ls='eza --icons --group-directories-first --color=auto'
@@ -427,7 +386,7 @@ alias ll='eza -l --icons --group-directories-first --git --color=auto'
 alias la='eza -la --icons --group-directories-first --git --color=auto'
 alias lt='eza --tree --level=2 --icons --color=auto'
 alias l='eza -1 --icons --color=auto'
-alias cat='batcat --paging=never --style=plain'
+alias cat='bat --paging=never --style=plain'
 alias grep='rg --color=auto'
 alias rg='rg --color=auto'
 alias top='btop'
@@ -456,7 +415,7 @@ fi
 ZSHRC
 
 # 用户级 .zshrc / .p10k.zsh
-for h in /root /home/ubuntu; do
+for h in /root /home/Arch; do
   [ -d "$h" ] || continue
   cat > "$h/.zshrc" <<'EOF'
 # 用户自定义覆盖（其余配置见 /etc/zsh/zshrc）
@@ -467,7 +426,7 @@ source /etc/zsh/p10k.zsh
 EOF
   touch "$h/.zsh_history"
 done
-chown -R ubuntu:ubuntu /home/ubuntu
+chown -R Arch:Arch /home/Arch
 
 # bash 兜底配置
 cat >> /etc/bash.bashrc <<'BASHRC'
@@ -478,7 +437,7 @@ command -v eza >/dev/null 2>&1 && {
   alias ll='eza -l --icons --group-directories-first --git --color=auto'
   alias la='eza -la --icons --group-directories-first --git --color=auto'
 }
-command -v batcat >/dev/null 2>&1 && alias cat='batcat --paging=never --style=plain'
+command -v bat >/dev/null 2>&1 && alias cat='bat --paging=never --style=plain'
 
 case $- in
   *i*) command -v welcome >/dev/null 2>&1 && welcome ;;
@@ -486,36 +445,41 @@ esac
 BASHRC
 
 # ===========================================================================
-# 11. 构建完成：切换为中科大(USTC)软件源（rootfs 交付后国内使用）
-#     注意：此处只改源，不再 apt-get update，避免从国外 runner 拉 USTC 变慢；
-#           rootfs 首次启动后执行 apt-get update 即从中科大拉取索引。
+# 11. 附加软件源：archlinuxcn（中科大） + arch4edu（南京大学）
 # ===========================================================================
-log "切换软件源为中科大(USTC)"
-cat > /etc/apt/sources.list.d/ubuntu.sources <<FINALSRC
-# Ubuntu 26.04 (Resolute Raccoon) arm64 —— 中科大(USTC)完整软件源
-# 含 main / universe / restricted / multiverse 以及 updates / backports / security
-Types: deb
-URIs: ${FINAL_MIRROR}
-Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+log "配置附加软件源 archlinuxcn(中科大) + arch4edu(南京大学)"
 
-Types: deb
-URIs: ${FINAL_MIRROR}
-Suites: ${RELEASE}-security
-Components: main universe restricted multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+cat >> /etc/pacman.conf <<CNREPO
 
-# 如需源码仓库，取消下面注释即可
-# Types: deb-src
-# URIs: ${FINAL_MIRROR}
-# Suites: ${RELEASE} ${RELEASE}-updates ${RELEASE}-backports
-# Components: main restricted universe multiverse
-# Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-FINALSRC
+[archlinuxcn]
+Server = ${CN_MIRROR}/\$arch
+CNREPO
+
+# 安装 archlinuxcn-keyring 导入 GPG key（该包由 Arch 开发者签名，可直接验签安装）
+pacman -Sy --noconfirm archlinuxcn-keyring
+
+cat >> /etc/pacman.conf <<EDUREPO
+
+[arch4edu]
+Server = ${EDU_MIRROR}/\$arch
+SigLevel = Optional TrustAll
+EDUREPO
+
+# 尝试导入 arch4edu 官方 GPG key（Key-ID 7931B6D628C8D3BA）
+pacman-key --recv-keys 7931B6D628C8D3BA 2>/dev/null || true
+pacman-key --lsign-key 7931B6D628C8D3BA 2>/dev/null || true
 
 # ===========================================================================
-# 12. 收尾清理
+# 12. 构建完成：切换主源为中科大（rootfs 交付后国内使用）
+# ===========================================================================
+log "切换主源为中科大(USTC)"
+cat > /etc/pacman.d/mirrorlist <<FINALMIRROR
+# Arch Linux ARM ($ARCH) —— 中科大(USTC)软件源
+Server = ${FINAL_MIRROR}/\$arch/\$repo
+FINALMIRROR
+
+# ===========================================================================
+# 13. 收尾清理
 # ===========================================================================
 log "验证结果"
 echo "OS   : $(. /etc/os-release && echo "$PRETTY_NAME")"
@@ -523,11 +487,10 @@ echo "架构 : $(uname -m)"
 echo "zsh  : $(zsh --version)"
 
 log "清理"
-rm -f /usr/sbin/policy-rc.d
-apt-get clean
-rm -rf /var/lib/apt/lists/*
+pacman -Scc --noconfirm 2>/dev/null || true
 rm -f /etc/machine-id
-rm -f /var/lib/dbus/machine-id
+rm -f /var/lib/systemd/random-seed
+rm -rf /var/cache/pacman/pkg/*
 rm -f /root/setup.sh
 
-log "chroot 配置完成"
+log "容器内配置完成"
