@@ -61,6 +61,46 @@ log "pacman -Syu 更新系统"
 pacman -Syu --noconfirm
 
 # ===========================================================================
+# 1.5 卸载实体机/裸机专用包
+#     DroidSpaces 是 proot 容器，使用宿主内核，rootfs 内不需要：
+#       内核、内核头文件、initramfs 生成器、各类固件、TPM、防火墙、控制台外设
+# ===========================================================================
+log "卸载实体机专用包（内核/固件/initramfs/TPM/防火墙/控制台外设）"
+
+# 逐个卸载，先检查是否已安装，避免包名不存在导致 pacman 报错
+_rm_pkg() {
+  if pacman -Qi "$1" >/dev/null 2>&1; then
+    log "  卸载 $1"
+    pacman -Rns --noconfirm "$1" || log "  !! $1 卸载失败（已忽略）"
+  fi
+}
+
+# 1) initramfs 生成器（先删，避免删除内核时触发 mkinitcpio 的 hook）
+_rm_pkg mkinitcpio
+_rm_pkg mkinitcpio-busybox
+
+# 2) 内核 + 内核头文件（proot 用宿主内核）
+_rm_pkg linux-aarch64
+_rm_pkg linux-api-headers
+
+# 3) 全部固件包（通配删除所有 linux-firmware*，含 amd/amdgpu/atheros/broadcom/
+#    cirrus/intel/mediatek/mellanox/nvidia/qcom/radeon/realtek/ti/whence 等）
+for _p in $(pacman -Qq 2>/dev/null | grep '^linux-firmware' || true); do
+  _rm_pkg "$_p"
+done
+
+# 4) TPM 芯片支持（systemd/cryptsetup 均仅为可选依赖，删之无碍）
+_rm_pkg tpm2-tss
+
+# 5) 防火墙（proot 下无法配置 netfilter，nftables 无用）
+_rm_pkg nftables
+_rm_pkg libnftnl
+
+# 6) 控制台鼠标 / DHCP 客户端
+_rm_pkg gpm
+_rm_pkg dhcpcd
+
+# ===========================================================================
 # 2. 基础系统组件
 # ===========================================================================
 log "安装基础系统组件"
