@@ -45,12 +45,17 @@ else
   sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
 fi
 
-log "刷新 pacman keyring"
-pacman-key --populate archlinuxarm archlinux 2>/dev/null || true
+# 官方 rootfs 的 pacman keyring 处于未初始化状态（无 trustdb/本地主密钥），
+# 必须先 --init 再 --populate，否则报 "Use 'pacman-key --init'" + "keyring is not writable"。
+log "初始化 pacman keyring (pacman-key --init)"
+pacman-key --init
+
+log "导入 Arch Linux ARM / Arch Linux 官方签名密钥"
+pacman-key --populate archlinuxarm archlinux
 
 # 先刷新 keyring 包本身（避免旧 keyring 导致后续签名失败）
 log "更新 keyring 包"
-pacman -Sy --noconfirm archlinux-keyring archlinuxarm-keyring 2>/dev/null || true
+pacman -Sy --noconfirm archlinux-keyring archlinuxarm-keyring
 
 log "pacman -Syu 更新系统"
 pacman -Syu --noconfirm
